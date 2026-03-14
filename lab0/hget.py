@@ -39,7 +39,7 @@ import struct
 from typing import Protocol
 
 PREFIX: str = "http://"
-HTTP_PORT: int = 80   # El puerto por convencion para HTTP,
+HTTP_PORT: int = 80  # El puerto por convencion para HTTP,
 # según http://tools.ietf.org/html/rfc1700
 HTTP_OK: str = "200"  # El codigo esperado para respuesta exitosa.
 
@@ -51,11 +51,9 @@ DNS_PORT: int = 53
 class SocketLike(Protocol):
     """Protocolo para objetos con interfaz tipo socket (recv, send)."""
 
-    def send(self, data: bytes) -> int:
-        ...
+    def send(self, data: bytes) -> int: ...
 
-    def recv(self, bufsize: int) -> bytes:
-        ...
+    def recv(self, bufsize: int) -> bytes: ...
 
 
 def parse_server(url: str) -> str:
@@ -89,15 +87,15 @@ def parse_server(url: str) -> str:
     """
     assert url.startswith(PREFIX)
     # Removemos el prefijo:
-    path = url[len(PREFIX):]
-    path_elements = path.split('/')
+    path = url[len(PREFIX) :]
+    path_elements = path.split("/")
     result = path_elements[0]
     # Si la URL incluye puerto (ej. http://localhost:8080/), solo el hostname
-    if ':' in result:
-        result = result.split(':', 1)[0]
+    if ":" in result:
+        result = result.split(":", 1)[0]
 
     assert url.startswith(PREFIX + path_elements[0])
-    assert '/' not in result
+    assert "/" not in result
 
     return result
 
@@ -120,10 +118,10 @@ def parse_port(url: str) -> int:
     80
     """
     assert url.startswith(PREFIX)
-    path = url[len(PREFIX):]
-    segment = path.split('/')[0]
-    if ':' in segment:
-        return int(segment.split(':', 1)[1])
+    path = url[len(PREFIX) :]
+    segment = path.split("/")[0]
+    if ":" in segment:
+        return int(segment.split(":", 1)[1])
     return HTTP_PORT
 
 
@@ -141,12 +139,12 @@ def _dns_encode_name(hostname: str) -> bytes:
     >>> _dns_encode_name('x.y.z').endswith(b'\\x00')
     True
     """
-    parts = hostname.strip().rstrip('.').split('.')
+    parts = hostname.strip().rstrip(".").split(".")
     buf = bytearray()
     for part in parts:
         if part:
             buf.append(len(part))
-            buf.extend(part.encode('ascii'))
+            buf.extend(part.encode("ascii"))
     buf.append(0)
     return bytes(buf)
 
@@ -169,7 +167,10 @@ def _dns_build_query(hostname: str, query_id: int) -> bytes:
         ">HHHHHH",
         query_id,
         0x0100,  # Standard query, RD=1
-        1, 0, 0, 0   # QDCOUNT=1, ANCOUNT, NSCOUNT, ARCOUNT=0
+        1,
+        0,
+        0,
+        0,  # QDCOUNT=1, ANCOUNT, NSCOUNT, ARCOUNT=0
     )
     qname = _dns_encode_name(hostname)
     # QTYPE A=1, QCLASS IN=1
@@ -206,12 +207,12 @@ def _dns_parse_one_rr(data: bytes, pos: int) -> tuple[str | None, int]:
     pos = _dns_skip_name(data, pos)
     if pos + 10 > len(data):
         return (None, pos)
-    rtype, _rclass, _ttl, rdlength = struct.unpack(">HHIH", data[pos:pos+10])
+    rtype, _rclass, _ttl, rdlength = struct.unpack(">HHIH", data[pos : pos + 10])
     pos += 10
     if pos + rdlength > len(data):
         return (None, pos)
     if rtype == 1 and rdlength == 4:  # A record
-        ip = data[pos:pos+4]
+        ip = data[pos : pos + 4]
         return ("%d.%d.%d.%d" % (ip[0], ip[1], ip[2], ip[3]), pos + rdlength)
     return (None, pos + rdlength)
 
@@ -268,14 +269,25 @@ def dns_resolve(hostname: str) -> str:
     >>> dns_resolve('www.famaf.unc.edu.ar')  # doctest: +ELLIPSIS
     '...'
     """
-    if hostname == 'localhost':
-        return '127.0.0.1'
+    if hostname == "localhost":
+        return "127.0.0.1"
     # Pasos sugeridos (RFC 1035, consulta tipo A):
-    # 1. Generar un query_id aleatorio (p. ej. random.randint) para asociar respuesta con consulta.
-    # 2. Construir el mensaje de consulta con _dns_build_query(hostname, query_id).
-    # 3. Crear socket UDP (AF_INET, SOCK_DGRAM), settimeout razonable, sendto(query, (DNS_SERVER, DNS_PORT)), recvfrom(512).
-    # 4. Cerrar el socket y devolver _dns_parse_response(data, query_id) que extrae la IP del primer registro A.
-    raise NotImplementedError("Implementar cliente DNS (UDP, Quad9 9.9.9.9, RFC 1035).")
+    else:
+        # 1. Generar un query_id aleatorio (p. ej. random.randint) para asociar respuesta con consulta.
+        query_id = random.randint(
+            0, 65000
+        )  # pq el id es de hasta 16 bits; 2^16 es aprox 65000
+        # 2. Construir el mensaje de consulta con _dns_build_query(hostname, query_id).
+        query = _dns_build_query(hostname, query_id)
+
+        # 3. Crear socket UDP (AF_INET, SOCK_DGRAM), settimeout razonable, sendto(query, (DNS_SERVER, DNS_PORT)), recvfrom(512).
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(3)
+        s.sendto(query, (DNS_SERVER, DNS_PORT))
+        res = s.recvfrom(512)
+        # 4. Cerrar el socket y devolver _dns_parse_response(data, query_id) que extrae la IP del primer registro A.
+        s.close()
+        return _dns_parse_response(res[0], query_id)
 
 
 def connect_to_server(server_name: str, port: int = HTTP_PORT) -> socket.socket:
@@ -303,9 +315,17 @@ def connect_to_server(server_name: str, port: int = HTTP_PORT) -> socket.socket:
     # COMPLETAR: implementar resolucion usando dns_resolve(server_name)
     # PROHIBIDO usar socket.gethostbyname()
     # Paso 1: resolver el nombre con dns_resolve(server_name) y guardar la IP en una variable.
+    ip = dns_resolve(server_name)
+
     # Paso 2: imprimir en stderr "Hostname: ..." e "IP resuelta: ..." (el enunciado lo exige).
+    sys.stderr.write(f"Hostname: {server_name} \n IP resuelta: {ip} \n")
+
     # Paso 3: crear socket TCP (AF_INET, SOCK_STREAM), opcional settimeout, connect((ip_address, port)), devolver el socket.
-    ...
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(3)
+    s.connect((ip, port))
+    return s
+
     # NO MODIFICAR POR FUERA DE ESTA FUNCION
 
 
@@ -342,20 +362,20 @@ def send_request(connection: SocketLike, url: str) -> None:
 
 def _read_until_newline_or_end(connection: SocketLike) -> tuple[bytes, bool]:
     """Lee bytes hasta '\\n' o fin; devuelve (bytes_leidos, hubo_error)."""
-    result = b''
+    result = b""
     error = False
     try:
         data = connection.recv(1)
     except Exception:
         error = True
-        data = b''
-    while not error and data != b'' and data != b'\n':
+        data = b""
+    while not error and data != b"" and data != b"\n":
         result = result + data
         try:
             data = connection.recv(1)
         except Exception:
             error = True
-            data = b''
+            data = b""
     result += data
     return (result, error)
 
@@ -425,9 +445,12 @@ def check_http_response(header: bytes) -> bool:
     False
     """
     header = header.decode()
-    elements = header.split(' ', 3)
-    return (len(elements) >= 2 and elements[0].startswith("HTTP/")
-            and elements[1] == HTTP_OK)
+    elements = header.split(" ", 3)
+    return (
+        len(elements) >= 2
+        and elements[0].startswith("HTTP/")
+        and elements[1] == HTTP_OK
+    )
 
 
 def get_response(connection: SocketLike, filename: str) -> bool:
@@ -469,7 +492,7 @@ def get_response(connection: SocketLike, filename: str) -> bool:
         # Leer y mostrar cada header hasta la linea en blanco
         sys.stderr.write("Headers:\n")
         line = read_line(connection)
-        while line != b'\r\n' and line != b'':
+        while line != b"\r\n" and line != b"":
             sys.stderr.write(line.decode())
             line = read_line(connection)
         sys.stderr.write("---\n")
@@ -478,7 +501,7 @@ def get_response(connection: SocketLike, filename: str) -> bool:
         # Descargar el body al archivo
         with open(filename, "wb") as output:
             data = connection.recv(BUFFER_SIZE)
-            while data != b'':
+            while data != b"":
                 output.write(data)
                 data = connection.recv(BUFFER_SIZE)
         return True
@@ -500,8 +523,9 @@ def download(url: str, filename: str) -> None:
         sys.stderr.write("No se encontro la direccion '%s'\n" % server)
         sys.exit(1)
     except socket.error:
-        sys.stderr.write("No se pudo conectar al servidor HTTP en '%s:%d'\n"
-                         % (server, port))
+        sys.stderr.write(
+            "No se pudo conectar al servidor HTTP en '%s:%d'\n" % (server, port)
+        )
         sys.exit(1)
 
     # Enviar pedido, recibir respuesta
@@ -523,7 +547,8 @@ def main() -> None:
     """Procesa los argumentos, y llama a download()"""
     parser = argparse.ArgumentParser(description="Cliente HTTP simple (hget).")
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         default="download.html",
         help="Archivo de salida",
     )
@@ -536,8 +561,7 @@ def main() -> None:
 
     url = args.url
     if not url.startswith(PREFIX):
-        sys.stderr.write("La direccion '%s' no comienza con '%s'\n" % (url,
-                                                                       PREFIX))
+        sys.stderr.write("La direccion '%s' no comienza con '%s'\n" % (url, PREFIX))
         sys.exit(1)
 
     download(url, args.output)
